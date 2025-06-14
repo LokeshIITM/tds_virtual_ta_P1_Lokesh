@@ -2,12 +2,14 @@ from fastapi import FastAPI
 from pydantic import BaseModel
 from typing import Optional
 import google.generativeai as genai
+from dotenv import load_dotenv
 import os
 
 app = FastAPI()
 
-# Load your Gemini API key
-genai.configure(api_key="AIzaSyCgREMwOvKlxBhDxC2gbNPZbyxdtFtnYyo")
+# Load .env and configure Gemini key
+load_dotenv()
+genai.configure(api_key=os.getenv("GOOGLE_API_KEY"))
 
 # Define request structure
 class Query(BaseModel):
