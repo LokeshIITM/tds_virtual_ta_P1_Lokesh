@@ -61,12 +61,13 @@ def answer_question(query: Query):
         )
 
         response = client.chat.completions.create(
-            model="gpt-3.5-turbo-0125",
+            model="gpt-4o-mini",
             messages=[
                 {"role": "system", "content": "You are a helpful TA. Answer based on context."},
                 {"role": "user", "content": prompt}
             ]
         )
+
 
         answer_text = response.choices[0].message.content.strip()
         links = [{"url": m.get("url", ""), "text": m.get("title", "")} for m in matches]
