@@ -1,91 +1,98 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Optional
+from typing import Optional, List, Dict
 from dotenv import load_dotenv
-import openai
+from openai import OpenAI
+from fastapi.responses import JSONResponse
 import os
 import json
 import difflib
-from fastapi.responses import JSONResponse
 
+# ─────────────────────────────────────────────
+# FastAPI app + simple health-check route
+# ─────────────────────────────────────────────
 app = FastAPI()
 
 @app.get("/")
 def read_root():
     return JSONResponse(content={"message": "TDS Virtual TA is live!"})
 
-# Load environment variables
+# ─────────────────────────────────────────────
+# Environment & OpenAI client (via AI Proxy)
+# ─────────────────────────────────────────────
 load_dotenv()
-openai.api_key = os.getenv("AIPROXY_TOKEN")
-openai.base_url = "https://aiproxy.sanand.workers.dev/openai"
 
-# Load the scraped discourse data
+client = OpenAI(
+    api_key=os.getenv("AIPROXY_TOKEN"),
+    base_url="https://aiproxy.sanand.workers.dev/openai"
+)
+
+# ─────────────────────────────────────────────
+# Load scraped Discourse posts (local JSON)
+# ─────────────────────────────────────────────
 with open("tds_discourse.json", "r", encoding="utf-8") as f:
-    discourse_posts = json.load(f)
+    discourse_posts: List[Dict] = json.load(f)
 
-# Pydantic model for the request
+# ─────────────────────────────────────────────
+# Request schema
+# ─────────────────────────────────────────────
 class Query(BaseModel):
     question: str
-    image: Optional[str] = None
+    image: Optional[str] = None  # not used yet but preserved
 
-# Search for relevant posts using difflib
+# ─────────────────────────────────────────────
+# Utils: fuzzy search for relevant posts
+# ─────────────────────────────────────────────
 def find_relevant_posts(question: str, top_n: int = 3):
     question_lower = question.lower()
 
-    # Filter posts that have at least one question word
-    filtered = [p for p in discourse_posts if any(
-        kw in p["title"].lower() or kw in p["content"].lower()
-        for kw in question_lower.split()
-    )]
+    # quick keyword filter
+    filtered = [
+        p for p in discourse_posts
+        if any(kw in (p["title"] + p["content"]).lower() for kw in question_lower.split())
+    ] or discourse_posts  # fallback to all if nothing passes filter
 
+    # score with difflib
     scored = []
     for post in filtered:
-        title = post.get("title", "")
-        content = post.get("content", "")
-        text = f"{title} {content}"
+        text = f"{post.get('title', '')} {post.get('content', '')}"
         score = difflib.SequenceMatcher(None, question_lower, text.lower()).ratio()
         scored.append((score, post))
 
-    # If no filtered matches, fall back to full list
-    if not scored:
-        for post in discourse_posts:
-            title = post.get("title", "")
-            content = post.get("content", "")
-            text = f"{title} {content}"
-            score = difflib.SequenceMatcher(None, question_lower, text.lower()).ratio()
-            scored.append((score, post))
+    scored.sort(key=lambda x: x[0], reverse=True)
+    return [p for _, p in scored[:top_n]]
 
-    return [pair[1] for pair in sorted(scored, key=lambda x: x[0], reverse=True)[:top_n]]
-
-# API endpoint to answer questions
+# ─────────────────────────────────────────────
+# POST endpoint: answer questions
+# ─────────────────────────────────────────────
 @app.post("/")
 def answer_question(query: Query):
     try:
         matches = find_relevant_posts(query.question)
-        context = "\n\n".join([f"Title: {m['title']}\nContent: {m['content']}" for m in matches])
-        prompt = f"""You are a helpful TA. Use the following Discourse posts to answer the question.
+        context = "\n\n".join(
+            f"Title: {m['title']}\nContent: {m['content']}"
+            for m in matches
+        )
 
-Discourse Context:
-{context}
+        prompt = (
+            "You are a helpful TA. Use the following Discourse posts to answer the question.\n\n"
+            f"Discourse Context:\n{context}\n\n"
+            f"Question: {query.question}\nAnswer:"
+        )
 
-Question: {query.question}
-Answer:"""
-
-        response = openai.ChatCompletion.create(
+        response = client.chat.completions.create(
             model="gpt-3.5-turbo-0125",
             messages=[
                 {"role": "system", "content": "You are a helpful TA. Answer based on context."},
-                {"role": "user", "content": prompt}
-            ]
+                {"role": "user",   "content": prompt},
+            ],
         )
 
-        answer_text = response['choices'][0]['message']['content'].strip()
+        answer_text = response.choices[0].message.content.strip()
         links = [{"url": m.get("url", ""), "text": m.get("title", "")} for m in matches]
 
-        return {
-            "answer": answer_text,
-            "links": links
-        }
+        return {"answer": answer_text, "links": links}
 
     except Exception as e:
+        # Surface any error so you can see it in the response
         return {"error": str(e)}
