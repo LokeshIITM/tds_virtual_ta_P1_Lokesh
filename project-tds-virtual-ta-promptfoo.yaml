@@ -1,0 +1,58 @@
+providers:
+  - id: my-api
+    type: api
+    config:
+      url: https://tds-virtual-ta-p1-lokesh.onrender.com/
+      method: POST
+      headers:
+        Content-Type: application/json
+      body: |
+        {
+          "question": "{{question}}"
+        }
+
+scenarios:
+  - name: Model Selection Confusion
+    config:
+      provider: my-api
+    vars:
+      question: "Should I use gpt-4o-mini which AI proxy supports, or gpt3.5 turbo?"
+    tests:
+      - type: contains
+        value: "gpt"
+
+  - name: GA5 Token Clarification
+    config:
+      provider: my-api
+    vars:
+      question: "Do I need to count the number of tokens using a tokenizer for GA5?"
+    tests:
+      - type: contains
+        value: "token"
+
+  - name: GA4 Submission Deadline
+    config:
+      provider: my-api
+    vars:
+      question: "When is the deadline for GA4 submission in TDS Jan 2025?"
+    tests:
+      - type: contains
+        value: "GA4"
+
+  - name: GA3 Explanation
+    config:
+      provider: my-api
+    vars:
+      question: "Where can I find Prof. Anand’s explanation for GA3 question 5?"
+    tests:
+      - type: contains
+        value: "GA3"
+
+  - name: Colab for GA
+    config:
+      provider: my-api
+    vars:
+      question: "Can I use Google Colab to run the code for GA2?"
+    tests:
+      - type: contains
+        value: "Colab"
