@@ -6,8 +6,15 @@ from dotenv import load_dotenv
 import os
 import json
 import difflib
+from fastapi.responses import JSONResponse
 
 app = FastAPI()
+
+@app.get("/")
+def read_root():
+    return JSONResponse(content={"message": "TDS Virtual TA is live!"})
+
+
 
 # Load environment variables
 load_dotenv()
