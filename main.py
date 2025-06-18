@@ -19,7 +19,7 @@ load_dotenv()
 
 client = OpenAI(
     api_key=os.getenv("AIPROXY_TOKEN"),
-    base_url="https://aiproxy.sanand.workers.dev/openai"
+    base_url="https://aiproxy.sanand.workers.dev"
 )
 
 # Load the scraped discourse data
