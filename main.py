@@ -1,6 +1,6 @@
 from fastapi import FastAPI
 from pydantic import BaseModel
-from typing import Optional, List, Dict
+from typing import Optional
 from dotenv import load_dotenv
 from openai import OpenAI
 from fastapi.responses import JSONResponse
@@ -8,18 +8,13 @@ import os
 import json
 import difflib
 
-# ─────────────────────────────────────────────
-# FastAPI app + simple health-check route
-# ─────────────────────────────────────────────
 app = FastAPI()
 
 @app.get("/")
 def read_root():
     return JSONResponse(content={"message": "TDS Virtual TA is live!"})
 
-# ─────────────────────────────────────────────
-# Environment & OpenAI client (via AI Proxy)
-# ─────────────────────────────────────────────
+# Load environment variables
 load_dotenv()
 
 client = OpenAI(
@@ -27,32 +22,21 @@ client = OpenAI(
     base_url="https://aiproxy.sanand.workers.dev/openai"
 )
 
-# ─────────────────────────────────────────────
-# Load scraped Discourse posts (local JSON)
-# ─────────────────────────────────────────────
+# Load the scraped discourse data
 with open("tds_discourse.json", "r", encoding="utf-8") as f:
-    discourse_posts: List[Dict] = json.load(f)
+    discourse_posts = json.load(f)
 
-# ─────────────────────────────────────────────
-# Request schema
-# ─────────────────────────────────────────────
 class Query(BaseModel):
     question: str
-    image: Optional[str] = None  # not used yet but preserved
+    image: Optional[str] = None
 
-# ─────────────────────────────────────────────
-# Utils: fuzzy search for relevant posts
-# ─────────────────────────────────────────────
 def find_relevant_posts(question: str, top_n: int = 3):
     question_lower = question.lower()
+    filtered = [p for p in discourse_posts if any(
+        kw in (p["title"] + p["content"]).lower()
+        for kw in question_lower.split()
+    )] or discourse_posts
 
-    # quick keyword filter
-    filtered = [
-        p for p in discourse_posts
-        if any(kw in (p["title"] + p["content"]).lower() for kw in question_lower.split())
-    ] or discourse_posts  # fallback to all if nothing passes filter
-
-    # score with difflib
     scored = []
     for post in filtered:
         text = f"{post.get('title', '')} {post.get('content', '')}"
@@ -62,16 +46,12 @@ def find_relevant_posts(question: str, top_n: int = 3):
     scored.sort(key=lambda x: x[0], reverse=True)
     return [p for _, p in scored[:top_n]]
 
-# ─────────────────────────────────────────────
-# POST endpoint: answer questions
-# ─────────────────────────────────────────────
 @app.post("/")
 def answer_question(query: Query):
     try:
         matches = find_relevant_posts(query.question)
         context = "\n\n".join(
-            f"Title: {m['title']}\nContent: {m['content']}"
-            for m in matches
+            f"Title: {m['title']}\nContent: {m['content']}" for m in matches
         )
 
         prompt = (
@@ -84,15 +64,17 @@ def answer_question(query: Query):
             model="gpt-3.5-turbo-0125",
             messages=[
                 {"role": "system", "content": "You are a helpful TA. Answer based on context."},
-                {"role": "user",   "content": prompt},
-            ],
+                {"role": "user", "content": prompt}
+            ]
         )
 
         answer_text = response.choices[0].message.content.strip()
         links = [{"url": m.get("url", ""), "text": m.get("title", "")} for m in matches]
 
-        return {"answer": answer_text, "links": links}
+        return {
+            "answer": answer_text,
+            "links": links
+        }
 
     except Exception as e:
-        # Surface any error so you can see it in the response
         return {"error": str(e)}
